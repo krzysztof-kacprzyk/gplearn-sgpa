@@ -147,6 +147,7 @@ class _Program(object):
         self.transformer = transformer
         self.feature_names = feature_names
         self.program = program
+        self.complexity = None
 
         if self.program is not None:
             if not self.validate_program():

@@ -124,7 +124,8 @@ def make_function(*, function, name, arity, wrap=True):
 def _protected_division(x1, x2):
     """Closure of division (x1/x2) for zero denominator."""
     with np.errstate(divide='ignore', invalid='ignore'):
-        return np.where(np.abs(x2) > 0.001, np.divide(x1, x2), 1.)
+        # return np.where(np.abs(x2) > 0.001, np.divide(x1, x2), 1.)
+        return np.where(np.abs(x2) > 1e-6, np.divide(x1, x2), np.sign(x2) * x1 * 1e6)
 
 
 def _protected_sqrt(x1):
@@ -135,7 +136,8 @@ def _protected_sqrt(x1):
 def _protected_log(x1):
     """Closure of log for zero and negative arguments."""
     with np.errstate(divide='ignore', invalid='ignore'):
-        return np.where(np.abs(x1) > 0.001, np.log(np.abs(x1)), 0.)
+        # return np.where(np.abs(x1) > 0.001, np.log(np.abs(x1)), 0.)
+        return np.where(np.abs(x1) > 1e-20, np.log(np.abs(x1)), np.log(1e-20))
 
 
 def _protected_inverse(x1):
@@ -148,6 +150,12 @@ def _sigmoid(x1):
     """Special case of logistic function to transform to probabilities."""
     with np.errstate(over='ignore', under='ignore'):
         return 1 / (1 + np.exp(-x1))
+    
+def _protected_exp(x1):
+    """Closure of exp for large arguments."""
+    with np.errstate(over='ignore', under='ignore'):
+        return np.where(np.abs(x1) < 20, np.exp(x1), np.exp(np.sign(x1) * 20))
+
 
 
 add2 = _Function(function=np.add, name='add', arity=2)
@@ -165,6 +173,7 @@ sin1 = _Function(function=np.sin, name='sin', arity=1)
 cos1 = _Function(function=np.cos, name='cos', arity=1)
 tan1 = _Function(function=np.tan, name='tan', arity=1)
 sig1 = _Function(function=_sigmoid, name='sig', arity=1)
+exp1 = _Function(function=_protected_exp, name='exp', arity=1)
 
 _function_map = {'add': add2,
                  'sub': sub2,
@@ -179,4 +188,5 @@ _function_map = {'add': add2,
                  'min': min2,
                  'sin': sin1,
                  'cos': cos1,
-                 'tan': tan1}
+                 'tan': tan1,
+                 'exp': exp1}

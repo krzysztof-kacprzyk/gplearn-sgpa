@@ -23,19 +23,133 @@ from sklearn.exceptions import NotFittedError
 from sklearn.utils import compute_sample_weight
 from sklearn.utils.validation import check_array, _check_sample_weight
 from sklearn.utils.multiclass import check_classification_targets
+from multiprocessing import Manager
 
 from ._program import _Program
 from .fitness import _fitness_map, _Fitness
 from .functions import _function_map, _Function, sig1 as sigmoid
 from .utils import _partition_estimators
 from .utils import check_random_state
+from .sgpa import complexity_1, complexity_2, complexity_2_greedy
+import sympy as sp
+
 
 __all__ = ['SymbolicRegressor', 'SymbolicClassifier', 'SymbolicTransformer']
 
 MAX_INT = np.iinfo(np.int32).max
 
+def _convert_to_sympy(program_list):
+    # Create sympy symbols for variables
+    variable_indices = [node for node in program_list if isinstance(node, int)]
+    variables = {i: sp.Symbol(f'X{i}') for i in set(variable_indices)}
+    
+    def helper(index):
+        node = program_list[index]
+        index += 1
+        if isinstance(node, _Function):
+            args = []
+            for _ in range(node.arity):
+                arg, index = helper(index)
+                args.append(arg)
+            name = node.name
+            if name == 'add':
+                expr = args[0] + args[1]
+            elif name == 'sub':
+                expr = args[0] - args[1]
+            elif name == 'mul':
+                expr = args[0] * args[1]
+            elif name == 'div':
+                expr = args[0] / args[1]
+            elif name == 'sqrt':
+                expr = sp.sqrt(sp.Abs(args[0]))
+            elif name == 'log':
+                expr = sp.log(sp.Abs(args[0]))
+            elif name == 'abs':
+                expr = sp.Abs(args[0])
+            elif name == 'neg':
+                expr = -args[0]
+            elif name == 'inv':
+                expr = 1 / args[0]
+            elif name == 'max':
+                expr = sp.Max(args[0], args[1])
+            elif name == 'min':
+                expr = sp.Min(args[0], args[1])
+            elif name == 'sin':
+                expr = sp.sin(args[0])
+            elif name == 'cos':
+                expr = sp.cos(args[0])
+            elif name == 'tan':
+                expr = sp.tan(args[0])
+            elif name == 'exp':
+                expr = sp.exp(args[0])
+            else:
+                raise ValueError(f"Unknown function: {name}")
+            return expr, index
+        elif isinstance(node, int):
+            return variables[node], index
+        elif isinstance(node, float):
+            return sp.S(node), index
+        else:
+            raise ValueError(f"Unknown node type: {node}")
+    
+    expr, next_index = helper(0)
+    if next_index != len(program_list):
+        raise ValueError("Unused nodes in program list.")
+    return expr
 
-def _parallel_evolve(n_programs, parents, X, y, sample_weight, seeds, params):
+def mask_constants(program_list):
+    new_program_list = []
+    for node in program_list:
+        if isinstance(node, float):
+            new_program_list.append(-1)
+        elif isinstance(node, _Function):
+            new_program_list.append(node.name)
+        else:
+            new_program_list.append(node)
+    return new_program_list
+
+def _check_if_finite(sympy_exp):
+    variables = sympy_exp.free_symbols
+    try:
+        lambdified = sp.lambdify(list(variables), sympy_exp)
+        return True
+    except Exception as e:
+        return False
+
+
+def check_cached_results(cached_results, program_list):
+    program_list_masked = mask_constants(program_list)
+    hashable = tuple(program_list_masked)
+    result = None
+    if hashable in cached_results:
+        result = cached_results[hashable]
+    return result
+        
+def save_to_cached_results(cached_results, program_list, complexities_to_track):
+    program_list_masked = mask_constants(program_list)
+    hashable = tuple(program_list_masked)
+    if 'length' in complexities_to_track:
+        length = len(program_list)
+    else:
+        length = 0
+    c1 = {}
+    c2 = {}
+    if 'c1' in complexities_to_track or 'c2' in complexities_to_track:
+        sympy_exp = _convert_to_sympy(program_list)
+        if not _check_if_finite(sympy_exp):
+            return None
+        if 'c1' in complexities_to_track:
+            c1 = complexity_1(sympy_exp, empirical=True)
+        if 'c2' in complexities_to_track:
+            c2 = complexity_2_greedy(sympy_exp, empirical=True)
+
+    complexity = {'c1': c1, 'c2': c2, 'length': length}
+    cached_results[hashable] = complexity
+    return complexity
+
+
+
+def _parallel_evolve(n_programs, parents, X, y, sample_weight, seeds, params, cached_results, complexities_to_track):
     """Private function used to build a batch of programs within a job."""
     n_samples, n_features = X.shape
     # Unpack parameters
@@ -145,6 +259,25 @@ def _parallel_evolve(n_programs, parents, X, y, sample_weight, seeds, params):
         oob_sample_weight[indices] = 0
 
         program.raw_fitness_ = program.raw_fitness(X, y, curr_sample_weight)
+
+        cached = check_cached_results(cached_results, program.program)
+
+        if cached is not None:
+            # print(f"Retrieved complexity for {program}: {cached}")
+            program.complexity = cached
+        else:
+            # print(f"Calculating complexity for {program}")
+            cached = save_to_cached_results(cached_results, program.program, complexities_to_track)
+            if cached is None:
+                # print(f"Failed to save complexity for {program}")
+                program.raw_fitness_ = 1e9
+                program.complexity = {'c1': {}, 'c2': {}, 'length': 0}
+            else:
+                # print(f"Saved: {cached}")
+                program.complexity = cached
+
+
+
         if max_samples < n_samples:
             # Calculate OOB fitness
             program.oob_fitness_ = program.raw_fitness(X, y, oob_sample_weight)
@@ -191,7 +324,9 @@ class BaseSymbolic(BaseEstimator, metaclass=ABCMeta):
                  low_memory=False,
                  n_jobs=1,
                  verbose=0,
-                 random_state=None):
+                 random_state=None,
+                 fitness_function=None,
+                 complexities_to_track=['length']):
 
         self.population_size = population_size
         self.hall_of_fame = hall_of_fame
@@ -219,6 +354,10 @@ class BaseSymbolic(BaseEstimator, metaclass=ABCMeta):
         self.n_jobs = n_jobs
         self.verbose = verbose
         self.random_state = random_state
+        self.manager = Manager()
+        self.cached_results = self.manager.dict()
+        self.fitness_function = fitness_function
+        self.complexities_to_track = complexities_to_track
 
     def _verbose_reporter(self, run_details=None):
         """A report of the progress of the evolution process.
@@ -481,7 +620,7 @@ class BaseSymbolic(BaseEstimator, metaclass=ABCMeta):
                                           y,
                                           sample_weight,
                                           seeds[starts[i]:starts[i + 1]],
-                                          params)
+                                          params,self.cached_results,self.complexities_to_track)
                 for i in range(n_jobs))
 
             # Reduce, maintaining order across different n_jobs
@@ -495,9 +634,14 @@ class BaseSymbolic(BaseEstimator, metaclass=ABCMeta):
                 parsimony_coefficient = (np.cov(length, fitness)[1, 0] /
                                          np.var(length))
             for program in population:
-                program.fitness_ = program.fitness(parsimony_coefficient)
+                if self.fitness_function is None:
+                    program.fitness_ = program.fitness(parsimony_coefficient)
+                else:
+                    program.fitness_ =  self.fitness_function(program.raw_fitness_,program.complexity)
 
             self._programs.append(population)
+
+            fitness = [program.fitness_ for program in population]
 
             # Remove old programs that didn't make it into the new population.
             if not self.low_memory:
@@ -809,7 +953,9 @@ class SymbolicRegressor(BaseSymbolic, RegressorMixin):
                  low_memory=False,
                  n_jobs=1,
                  verbose=0,
-                 random_state=None):
+                 random_state=None,
+                 fitness_function=None,
+                 complexities_to_track=['length']):
         super(SymbolicRegressor, self).__init__(
             population_size=population_size,
             generations=generations,
@@ -832,7 +978,9 @@ class SymbolicRegressor(BaseSymbolic, RegressorMixin):
             low_memory=low_memory,
             n_jobs=n_jobs,
             verbose=verbose,
-            random_state=random_state)
+            random_state=random_state,
+            fitness_function=fitness_function,
+            complexities_to_track=complexities_to_track)
 
     def __str__(self):
         """Overloads `print` output of the object to resemble a LISP tree."""
