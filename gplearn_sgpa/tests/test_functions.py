@@ -12,9 +12,9 @@ from sklearn.datasets import load_diabetes, load_breast_cancer
 from sklearn.utils._testing import assert_raises
 from sklearn.utils.validation import check_random_state
 
-from gplearn.functions import _protected_sqrt, make_function
-from gplearn.genetic import SymbolicRegressor, SymbolicTransformer
-from gplearn.genetic import SymbolicClassifier
+from gplearn_sgpa.functions import _protected_sqrt, make_function
+from gplearn_sgpa.genetic import SymbolicRegressor, SymbolicTransformer
+from gplearn_sgpa.genetic import SymbolicClassifier
 
 # load the diabetes dataset and randomly permute it
 rng = check_random_state(0)

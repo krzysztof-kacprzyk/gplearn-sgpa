@@ -41,7 +41,7 @@ MAX_INT = np.iinfo(np.int32).max
 def _convert_to_sympy(program_list):
     # Create sympy symbols for variables
     variable_indices = [node for node in program_list if isinstance(node, int)]
-    variables = {i: sp.Symbol(f'X{i}') for i in set(variable_indices)}
+    variables = {i: sp.Symbol(f'X{i}',real=True) for i in set(variable_indices)}
     
     def helper(index):
         node = program_list[index]

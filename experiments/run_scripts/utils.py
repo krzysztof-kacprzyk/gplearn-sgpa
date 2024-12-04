@@ -14,13 +14,20 @@ def create_fitness_function(constraint):
 
 def constraint_1(complexity):
     c1_complexity = complexity['c1']
+    length = complexity['length']
     if len(c1_complexity) == 0:
-        return True
+        if length < 200:
+            return True
+        else:
+            return False
     max_degree = np.max([v for k,v in c1_complexity.items()])
     if max_degree > 0:
         return False
     else:
-        return True
+        if length < 200:
+            return True
+        else:
+            return False
 
 def constraint_2(complexity):
     c1_complexity = complexity['c1']
