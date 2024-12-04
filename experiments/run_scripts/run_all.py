@@ -8,8 +8,9 @@ from interpret.glassbox import ExplainableBoostingRegressor
 
 
 POPULATION_SIZE = 15000
-# POPULATION_SIZE = 10
+# POPULATION_SIZE = 1000
 GENERATIONS = 50
+# GENERATIONS = 20
 N_JOBS = 18
 FUNCTION_SET = ('add', 'sub', 'mul', 'div', 'sqrt', 'log', 'abs', 'sin', 'exp')
 SEED = 0
@@ -78,13 +79,15 @@ def test_ebm(ebm_model,X_test,y_test):
 
 def main():
 
-    datasets = ['concrete']
+    # datasets = ['concrete']
     # datasets = ['pollen']
+    datasets = ['feynman_I_11_19']
+    datasets += ['feynman_I_18_14','feynman_I_30_5','feynman_II_10_9','feynman_II_38_14']
     # sgpa_constraints = [constraint_1,constraint_2,constraint_3]
     # sgpa_constraints_names = ['constraint_1','constraint_2','constraint_3']
-    sgpa_constraints = [constraint_1]
-    sgpa_constraints_names = ['constraint_1']
-    max_lengths = []
+    sgpa_constraints = [constraint_2]
+    sgpa_constraints_names = ['constraint_2']
+    max_lengths = [5,10,20,30]
     # max_lengths = []
 
     for dataset in datasets:

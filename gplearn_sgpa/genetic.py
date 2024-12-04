@@ -13,6 +13,7 @@ import itertools
 from abc import ABCMeta, abstractmethod
 from time import time
 from warnings import warn
+import warnings
 
 import numpy as np
 from joblib import Parallel, delayed
@@ -109,10 +110,14 @@ def mask_constants(program_list):
     return new_program_list
 
 def _check_if_finite(sympy_exp):
+    if isinstance(sympy_exp, sp.core.numbers.NaN):
+        return False
     variables = sympy_exp.free_symbols
     try:
-        lambdified = sp.lambdify(list(variables), sympy_exp)
-        return True
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            lambdified = sp.lambdify(list(variables), sympy_exp)
+            return True
     except Exception as e:
         return False
 
@@ -135,7 +140,10 @@ def save_to_cached_results(cached_results, program_list, complexities_to_track):
     c1 = {}
     c2 = {}
     if 'c1' in complexities_to_track or 'c2' in complexities_to_track:
-        sympy_exp = _convert_to_sympy(program_list)
+        try:
+            sympy_exp = _convert_to_sympy(program_list)
+        except Exception as e:
+            return None
         if not _check_if_finite(sympy_exp):
             return None
         if 'c1' in complexities_to_track:

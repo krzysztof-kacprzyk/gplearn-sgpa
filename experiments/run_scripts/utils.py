@@ -108,11 +108,28 @@ def load_pollen_dataset(seed=42):
 
     return X_train, X_test, y_train, y_test
 
+def load_feynamn_dataset(name, seed=42):
+    dataset = fetch_data(name)
+    X = dataset.drop(columns=['target']).values
+    y = dataset['target'].values
+
+    # Random sample 1000 samples
+    idx = np.random.choice(X.shape[0], 10000, replace=False)
+    X = X[idx]
+    y = y[idx]
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=seed)
+
+    return X_train, X_test, y_train, y_test
+
+
 def load_dataset(name,seed=42):
     if name == 'concrete':
         return load_concrete_dataset(seed=seed)
     elif name == 'pollen':
         return load_pollen_dataset(seed=seed)
+    elif 'feynman' in name:
+        return load_feynamn_dataset(name, seed=seed)
     else:
         raise ValueError(f"Dataset {name} not found")
     
