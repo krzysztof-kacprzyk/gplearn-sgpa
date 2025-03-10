@@ -4,8 +4,8 @@ import sympy
 from utils import *
 from gplearn_sgpa.genetic import SymbolicRegressor, _convert_to_sympy
 
-POPULATION_SIZE = 5000
-GENERATIONS = 30
+POPULATION_SIZE = 15000
+GENERATIONS = 50
 
 N_JOBS = 18
 FUNCTION_SET = ('add', 'sub', 'mul', 'div', 'sqrt', 'log', 'abs', 'sin', 'exp')
